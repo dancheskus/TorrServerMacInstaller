@@ -45,24 +45,30 @@ EOF
   mv TorrServer-darwin-amd64 /Users/Shared/
 }
 
+stopServer() {
+  pkill -f "TorrServer-darwin-amd64"
+}
+
 startServer() {
+  cd /Users/Shared
+  (&>/dev/null ./TorrServer-darwin-amd64 &)
+  cd "$dir"
+  clear
+  open http://localhost:8090
+}
+
+toggleServerState() {
   if [[ $isServerInstalled == false ]]; then
     installServer
   fi
 
-  if [[ $isServerRunning ]]; then
-      echo "Stopping TorrServer..."
+  [[ $isServerRunning ]] && stopServer || startServer
+}
 
-      pkill -f "TorrServer-darwin-amd64"
-  else
-      echo "Starting TorrServer..."
+removeServer() {
+  stopServer
 
-      cd /Users/Shared
-      (&>/dev/null ./TorrServer-darwin-amd64 &)
-      cd "$dir"
-      clear
-      open http://localhost:8090
-  fi
+  sudo rm $plistPath && rm $serverPath
 }
 
 printHeader() { printf "\033[44m$1\n"; tput sgr0; }
@@ -103,19 +109,22 @@ while true; do
   updateServrIsInstalled
   printInfo
   
-  firstOption="Start server" && [[ $isServerInstalled == true && $isServerRunning ]] && firstOption="Stop server"
+  firstOption="Install server"
+  [[ $isServerInstalled == true ]] && firstOption="Start server"
+  [[ $isServerRunning ]] && firstOption="Stop server"
+
   options=("$firstOption" "Update server" "Remove server" "Toggle autostart" "Quit")
 
   printHeader " Choose an option: "; echo
   COLUMNS=0
   select opt in "${options[@]}"; do
     case $REPLY in
-      1) startServer; break ;;
+      1) toggleServerState; break ;;
       2) break ;;
-      3) break ;;
+      3) removeServer; clear; echo "Server is removed."; break 2 ;;
       4) [[ $isRunAtLoad ]] && replaceAutostart false || replaceAutostart true; break ;;
       5) clear; break 2 ;;
-      *) echo "What's that?" >&2 ;;
+      *) echo "Wrong key? Use keys [1 - 5]" >&2 ;;
     esac
   done
 done
