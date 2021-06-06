@@ -6,7 +6,9 @@ cd "$dir"
 plistPath="/Library/LaunchAgents/torrserver.plist"
 serverPath="/Users/Shared/TorrServer-darwin-amd64"
 isServerInstalled=false
-latestMatrixVersion=$(curl -s https://api.github.com/repos/YouROK/TorrServer/releases | grep tag_name | grep -m 1 MatriX | cut -d '"' -f 4)
+projectURL="https://api.github.com/repos/YouROK/TorrServer/releases"
+latestMatrixVersion=$(curl -s $projectURL | grep tag_name | grep -m 1 MatriX | cut -d '"' -f 4)
+webAppURL="http://localhost:8090"
 
 replacePlist() { plutil -replace $1 $2 "$3" "$plistPath"; }
 toggleAutostart() {
@@ -69,10 +71,10 @@ EOF
 
   if [[ $1 ]]; then
     echo "Downloading $1..."
-    curl -s https://api.github.com/repos/YouROK/TorrServer/releases | grep browser_download_url | grep $1 | grep darwin-amd64 | cut -d '"' -f 4 | xargs -n 1 curl -O -sSL
+    curl -s $projectURL | grep browser_download_url | grep $1 | grep darwin-amd64 | cut -d '"' -f 4 | xargs -n 1 curl -O -sSL
   else
     echo "Downloading latest release..."
-    curl -s https://api.github.com/repos/YouROK/TorrServer/releases/latest | grep browser_download_url | grep darwin-amd64 | cut -d '"' -f 4 | xargs -n 1 curl -O -sSL
+    curl -s $projectURL/latest | grep browser_download_url | grep darwin-amd64 | cut -d '"' -f 4 | xargs -n 1 curl -O -sSL
   fi
   chmod 755 TorrServer-darwin-amd64
   mv TorrServer-darwin-amd64 /Users/Shared/
@@ -93,7 +95,7 @@ startServer() {
   (&>/dev/null ./TorrServer-darwin-amd64 &)
   cd "$dir"
   clear
-  open http://localhost:8090
+  open $webAppURL
 }
 
 toggleServerState() {
@@ -125,7 +127,7 @@ printInfo() {
     printKey "Server is running" && [[ $isServerRunning ]] && printValue "true" || printValue "fasle"
 
     if [[ $isServerRunning ]]; then
-      torrServerVer="$(curl -s http://localhost:8090/echo)"
+      torrServerVer="$(curl -s $webAppURL/echo)"
       printKey "Server version"
       [[ $torrServerVer == $latestMatrixVersion ]] && printValue "$torrServerVer (latest)" || printValue "$torrServerVer (update available)"
     fi
@@ -189,7 +191,7 @@ startApp() {
 startApp
 
 while $isVersionMenu; do
-  options=($(curl -s https://api.github.com/repos/YouROK/TorrServer/releases | grep tag_name | grep MatriX | cut -d '"' -f 4))
+  options=($(curl -s $projectURL | grep tag_name | grep MatriX | cut -d '"' -f 4))
   returnBack="Return back"
   options+=("$returnBack")
 
