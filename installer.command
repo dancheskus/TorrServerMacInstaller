@@ -114,8 +114,12 @@ toggleServerState() {
 
 printHeader() { printf "\033[44m$1\n"; tput sgr0; }
 printTitle() { printf "\033[1m$1\n"; tput sgr0; }
-printKey() { printf "   \033[1m$1: "; }
+printKey() { printf "   \033[1m$1: "; tput sgr0;}
 printValue() { printf "\033[2m$1\n"; tput sgr0; }
+printGreen() { printf "\e[30m\e[42m$1\n"; tput sgr0; }
+printRed() { printf "\e[41m$1\n"; tput sgr0; }
+printLightBlue() { printf "\e[104m$1\n"; tput sgr0; }
+printGray() { printf "\e[30m\e[47m$1\n"; tput sgr0; }
 
 printInfo() {
   clear
@@ -126,21 +130,21 @@ printInfo() {
 
   printTitle "Info:"
 
-  printKey "Server is installed" && printValue $isServerInstalled
+  printKey "Server is installed" && [[ $isServerInstalled ]] && printGreen " true " || printRed " fasle "
 
 
   if [[ $isServerInstalled == true ]]; then
-    printKey "Server is running" && [[ $isServerRunning ]] && printValue "true" || printValue "fasle"
+    printKey "Server is running" && [[ $isServerRunning ]] && printGreen " true " || printRed " fasle "
 
     if [[ $isServerRunning ]]; then
       torrServerVer="$(curl -s $webAppURL/echo)"
       printKey "Server version"
-      [[ $torrServerVer == $latestMatrixVersion ]] && printValue "$torrServerVer (latest)" || printValue "$torrServerVer (update available)"
+      [[ $torrServerVer == $latestMatrixVersion ]] && printLightBlue " $torrServerVer (latest) " || printGray " $torrServerVer (update available) "
     fi
 
     isRunAtLoad="$(plutil -extract "RunAtLoad" xml1 -o - $plistPath | grep true)"
     printKey "Autostart server when Mac OS starts"
-    if [[ $isRunAtLoad ]]; then printValue "true"; else printValue "false"; fi
+    [[ $isRunAtLoad ]] && printGreen " true " || printRed " fasle "
   fi
   
   echo; echo; echo; echo; echo;
