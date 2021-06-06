@@ -6,6 +6,7 @@ cd "$dir"
 plistPath="/Library/LaunchAgents/torrserver.plist"
 serverPath="/Users/Shared/TorrServer-darwin-amd64"
 isServerInstalled=false
+latestMatrixVersion=$(curl -s https://api.github.com/repos/YouROK/TorrServer/releases | grep tag_name | grep -m 1 MatriX | cut -d '"' -f 4)
 
 replacePlist() { plutil -replace $1 $2 "$3" "$plistPath"; }
 replaceAutostart() { replacePlist "RunAtLoad" "-bool" $1; }
@@ -100,7 +101,7 @@ printInfo() {
     if [[ $isServerRunning ]]; then
       torrServerVer="$(curl -s http://localhost:8090/echo)"
       printKey "Server version"
-      printValue $torrServerVer
+      [[ $torrServerVer == $latestMatrixVersion ]] && printValue "$torrServerVer (latest)" || printValue "$torrServerVer (update available)"
     fi
 
     isRunAtLoad="$(plutil -extract "RunAtLoad" xml1 -o - $plistPath | grep true)"
@@ -150,28 +151,25 @@ enableMainMenu() {
         esac
       done 
     fi
-
   done
 }
 
 enableMainMenu
 
 while $isVersionMenu; do
-    options=($(curl -s https://api.github.com/repos/YouROK/TorrServer/releases | grep tag_name | grep MatriX | cut -d '"' -f 4))
-    returnBack="Return back"
-    options+=("$returnBack")
+  options=($(curl -s https://api.github.com/repos/YouROK/TorrServer/releases | grep tag_name | grep MatriX | cut -d '"' -f 4))
+  returnBack="Return back"
+  options+=("$returnBack")
 
-    printHeader " Select version: "; echo
-    COLUMNS=0
-    select option in "${options[@]}"; do
-        if [[ $option != $returnBack ]]; then
-          removeServer
-          toggleServerState $option
-        fi
-        
-        isVersionMenu=false; enableMainMenu; break
-    done
+  printHeader " Select version: "; echo
+  select option in "${options[@]}"; do
+    if [[ $option != $returnBack ]]; then
+      [[ $isServerInstalled == true ]] && removeServer
+      toggleServerState $option
+    fi
 
+    isVersionMenu=false; enableMainMenu; break
+  done
 done
 
 echo "Bye bye!"
