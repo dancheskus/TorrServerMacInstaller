@@ -4,7 +4,8 @@ dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 cd "$dir"
 
 plistPath="/Library/LaunchAgents/torrserver.plist"
-serverPath="/Users/Shared/TorrServer-darwin-amd64"
+serverFolder="/Users/Shared/TorrServer"
+serverPath="$serverFolder/TorrServer-darwin-amd64"
 isServerInstalled=false
 projectURL="https://api.github.com/repos/YouROK/TorrServer/releases"
 latestMatrixVersion=$(curl -s $projectURL | grep tag_name | grep -m 1 MatriX | cut -d '"' -f 4)
@@ -77,13 +78,17 @@ EOF
     curl -s $projectURL/latest | grep browser_download_url | grep darwin-amd64 | cut -d '"' -f 4 | xargs -n 1 curl -O -sSL
   fi
   chmod 755 TorrServer-darwin-amd64
-  mv TorrServer-darwin-amd64 /Users/Shared/
+  [ -d $serverFolder ] || mkdir $serverFolder
+  mv TorrServer-darwin-amd64 $serverFolder
 }
 
 removeServer() {
   stopServer
 
   sudo rm $plistPath && rm $serverPath
+
+  isVersionMenu=false
+  isRemoveMenu=true
 }
 
 stopServer() {
@@ -91,7 +96,7 @@ stopServer() {
 }
 
 startServer() {
-  cd /Users/Shared
+  cd $serverFolder
   (&>/dev/null ./TorrServer-darwin-amd64 &)
   cd "$dir"
   clear
@@ -141,6 +146,7 @@ printInfo() {
 }
 
 isVersionMenu=false
+isRemoveMenu=false
 
 startApp() {
   while ! $isVersionMenu; do
@@ -209,5 +215,19 @@ while $isVersionMenu; do
     fi
   done
 done
+
+while $isRemoveMenu; do
+    options=("Yes" "No")
+
+    printHeader " Do you want to remove database also? "; echo
+    COLUMNS=0
+    select opt in "${options[@]}"; do
+      case $REPLY in
+        1) rm -rf $serverFolder; clear; break 2 ;;
+        2) clear; break 2 ;;
+        *) echo "Wrong key? Use keys [1 - ${#options[@]}]" >&2 ;;
+      esac
+    done
+  done
 
 echo "Bye bye!"
