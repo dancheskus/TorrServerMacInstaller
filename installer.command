@@ -9,32 +9,58 @@ isServerInstalled=false
 latestMatrixVersion=$(curl -s https://api.github.com/repos/YouROK/TorrServer/releases | grep tag_name | grep -m 1 MatriX | cut -d '"' -f 4)
 
 replacePlist() { plutil -replace $1 $2 "$3" "$plistPath"; }
-replaceAutostart() { replacePlist "RunAtLoad" "-bool" $1; }
+toggleAutostart() {
+  if [[ $isRunAtLoad ]]; then
+    replacePlist "RunAtLoad" "-bool" false
+  else    
+    replacePlist "RunAtLoad" "-bool" true
+  fi
+}
 updateServrIsInstalled() {
   [[ -f $serverPath && -f $plistPath ]] && isServerInstalled=true
 }
 
+contains() {
+  # https://www.programmersought.com/article/36184759477/
+  local n=$#
+  local value=${!n}
+  for ((i=1;i < $#;i++)) {
+      if [ "${!i}" == "${value}" ]; then
+          echo "y"
+          return 0
+      fi
+  }
+  echo "n"
+  return 1
+}
+
 installServer() {
   cat > torrserver.plist <<- "EOF"            
-    <?xml version="1.0" encoding="UTF-8"?>                                                                 
-    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"\>
-    <plist version="1.0">
-      <dict>            
-        <key>Label</key>           
-        <string>TorrServer</string>  
-        <key>ServiceDescription</key>              
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+        <dict>
+        <key>Label</key>
+        <string>TorrServer</string>
+        <key>ServiceDescription</key>
         <string>TorrServer service for Mac</string>
         <key>LaunchOnlyOnce</key>
-        <true/>             
+        <true/>
         <key>RunAtLoad</key>
-        <true/>                    
+        <true/>
         <key>ProgramArguments</key>
-        <array>                                                 
-          <string>/Users/Shared/TorrServer-darwin-amd64</string>
-          <string>-d</string>           
-          <string>/Users/Shared</string>
+        <array>
+          <string>/Users/Shared/TorrServer/TorrServer-darwin-amd64</string>
+          <string>-d</string>
+          <string>/Users/Shared/TorrServer</string>
+          <string>-l</string>
+          <string>/Users/Shared/TorrServer/torrserver.log</string>
+          <string>-p</string>
+          <string>8090</string>
+          <string>-a</string>
+          <string>-k</string>
         </array>
-      </dict>
+        </dict>
     </plist>
 EOF
 
@@ -114,47 +140,53 @@ printInfo() {
 
 isVersionMenu=false
 
-enableMainMenu() {
+startApp() {
   while ! $isVersionMenu; do
     updateServrIsInstalled
     printInfo
+
+    # ----------------------- MENU ITEMS -------------------------
+    installLatestServerOption="Install latest server"
+    installDifferentServerVersionOption="Select another server version to install"
+    startServerOption="Start server"
+    stopServerOption="Stop server"
+    updateServerOption="Update server"
+    removeServerOption="Remove server"
+    toggleAutostartOption="Toggle autostart"
+    quitOption="Quit"
+    # ------------------------------------------------------------
     
-    firstOption="Start server"
-    [[ $isServerRunning ]] && firstOption="Stop server"
+    options=()
+    if [[ $isServerInstalled == true ]]; then
+      [[ $isServerRunning ]] && options+=("$stopServerOption") || options+=("$startServerOption")
+    else
+      options+=("$installLatestServerOption")
+    fi
+
+    options+=("$installDifferentServerVersionOption")
 
     if [[ $isServerInstalled == true ]]; then
-      options=("$firstOption" "Update server" "Remove server" "Toggle autostart" "Quit")
-
-      printHeader " Choose an option: "; echo
-      COLUMNS=0
-      select opt in "${options[@]}"; do
-        case $REPLY in
-          1) toggleServerState; break ;;
-          2) break ;;
-          3) removeServer; clear; echo "Server is removed."; break 2 ;;
-          4) [[ $isRunAtLoad ]] && replaceAutostart false || replaceAutostart true; break ;;
-          5) clear; break 2 ;;
-          *) echo "Wrong key? Use keys [1 - 5]" >&2 ;;
-        esac
-      done
-    else
-      options=("Install latest server" "Select another server version to install" "Quit")
-
-      printHeader " Choose an option: "; echo
-      COLUMNS=0
-      select opt in "${options[@]}"; do
-        case $REPLY in
-          1) toggleServerState; break ;;
-          2) isVersionMenu=true; clear; break ;;
-          3) clear; break 2 ;;
-          *) echo "Wrong key? Use keys [1 - 3]" >&2 ;;
-        esac
-      done 
+      [[ $torrServerVer != $latestMatrixVersion ]] && options+=("$updateServerOption")
+      options+=("$removeServerOption" "$toggleAutostartOption")
     fi
+
+    options+=("$quitOption")
+
+    printHeader " Choose an option (enter number and press ENTER): "; echo
+    COLUMNS=0
+    select option in "${options[@]}"; do
+      [[ $option == $installLatestServerOption || $option == $startServerOption || $option == $stopServerOption ]] && toggleServerState && break
+      [[ $option == $updateServerOption ]] && removeServer && installServer && startServer && break
+      [[ $option == $installDifferentServerVersionOption ]] && isVersionMenu=true && clear && break
+      [[ $option == $removeServerOption ]] && removeServer && clear && echo "Server is removed." && break 2
+      [[ $option == $toggleAutostartOption ]] && toggleAutostart && break
+      [[ $option == $quitOption ]] && clear && break 2
+      echo "Wrong key? Use keys [1 - ${#options[@]}]"
+    done
   done
 }
 
-enableMainMenu
+startApp
 
 while $isVersionMenu; do
   options=($(curl -s https://api.github.com/repos/YouROK/TorrServer/releases | grep tag_name | grep MatriX | cut -d '"' -f 4))
@@ -163,12 +195,16 @@ while $isVersionMenu; do
 
   printHeader " Select version: "; echo
   select option in "${options[@]}"; do
-    if [[ $option != $returnBack ]]; then
-      [[ $isServerInstalled == true ]] && removeServer
-      toggleServerState $option
-    fi
+    if [ $(contains "${options[@]}" "$option") == "y" ]; then
+      if [[ $option != $returnBack ]]; then
+        [[ $isServerInstalled == true ]] && removeServer
+        installServer $option && startServer
+      fi
 
-    isVersionMenu=false; enableMainMenu; break
+      isVersionMenu=false; startApp; break
+    else
+      echo "Wrong key? Use keys [1 - ${#options[@]}]"
+    fi
   done
 done
 
