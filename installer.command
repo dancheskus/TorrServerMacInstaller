@@ -40,9 +40,21 @@ EOF
   chmod 755 torrserver.plist
   sudo mv torrserver.plist /Library/LaunchAgents
 
-  curl -s https://api.github.com/repos/YouROK/TorrServer/releases/latest | grep browser_download_url | grep darwin-amd64 | cut -d '"' -f 4 | xargs -n 1 curl -O -sSL
+  if [[ $1 ]]; then
+    echo "Downloading $1..."
+    curl -s https://api.github.com/repos/YouROK/TorrServer/releases | grep browser_download_url | grep $1 | grep darwin-amd64 | cut -d '"' -f 4 | xargs -n 1 curl -O -sSL
+  else
+    echo "Downloading latest release..."
+    curl -s https://api.github.com/repos/YouROK/TorrServer/releases/latest | grep browser_download_url | grep darwin-amd64 | cut -d '"' -f 4 | xargs -n 1 curl -O -sSL
+  fi
   chmod 755 TorrServer-darwin-amd64
   mv TorrServer-darwin-amd64 /Users/Shared/
+}
+
+removeServer() {
+  stopServer
+
+  sudo rm $plistPath && rm $serverPath
 }
 
 stopServer() {
@@ -59,16 +71,10 @@ startServer() {
 
 toggleServerState() {
   if [[ $isServerInstalled == false ]]; then
-    installServer
+    installServer $1
   fi
 
   [[ $isServerRunning ]] && stopServer || startServer
-}
-
-removeServer() {
-  stopServer
-
-  sudo rm $plistPath && rm $serverPath
 }
 
 printHeader() { printf "\033[44m$1\n"; tput sgr0; }
@@ -105,28 +111,67 @@ printInfo() {
   echo; echo; echo; echo; echo;
 }
 
-while true; do
-  updateServrIsInstalled
-  printInfo
-  
-  firstOption="Install server"
-  [[ $isServerInstalled == true ]] && firstOption="Start server"
-  [[ $isServerRunning ]] && firstOption="Stop server"
+isVersionMenu=false
 
-  options=("$firstOption" "Update server" "Remove server" "Toggle autostart" "Quit")
+enableMainMenu() {
+  while ! $isVersionMenu; do
+    updateServrIsInstalled
+    printInfo
+    
+    firstOption="Start server"
+    [[ $isServerRunning ]] && firstOption="Stop server"
 
-  printHeader " Choose an option: "; echo
-  COLUMNS=0
-  select opt in "${options[@]}"; do
-    case $REPLY in
-      1) toggleServerState; break ;;
-      2) break ;;
-      3) removeServer; clear; echo "Server is removed."; break 2 ;;
-      4) [[ $isRunAtLoad ]] && replaceAutostart false || replaceAutostart true; break ;;
-      5) clear; break 2 ;;
-      *) echo "Wrong key? Use keys [1 - 5]" >&2 ;;
-    esac
+    if [[ $isServerInstalled == true ]]; then
+      options=("$firstOption" "Update server" "Remove server" "Toggle autostart" "Quit")
+
+      printHeader " Choose an option: "; echo
+      COLUMNS=0
+      select opt in "${options[@]}"; do
+        case $REPLY in
+          1) toggleServerState; break ;;
+          2) break ;;
+          3) removeServer; clear; echo "Server is removed."; break 2 ;;
+          4) [[ $isRunAtLoad ]] && replaceAutostart false || replaceAutostart true; break ;;
+          5) clear; break 2 ;;
+          *) echo "Wrong key? Use keys [1 - 5]" >&2 ;;
+        esac
+      done
+    else
+      options=("Install latest server" "Select another server version to install" "Quit")
+
+      printHeader " Choose an option: "; echo
+      COLUMNS=0
+      select opt in "${options[@]}"; do
+        case $REPLY in
+          1) toggleServerState; break ;;
+          2) isVersionMenu=true; clear; break ;;
+          3) clear; break 2 ;;
+          *) echo "Wrong key? Use keys [1 - 3]" >&2 ;;
+        esac
+      done 
+    fi
+
   done
+}
+
+enableMainMenu
+
+while $isVersionMenu; do
+    options=($(curl -s https://api.github.com/repos/YouROK/TorrServer/releases | grep tag_name | grep MatriX | cut -d '"' -f 4))
+    returnBack="Return back"
+    options+=("$returnBack")
+
+    printHeader " Select version: "; echo
+    COLUMNS=0
+    select option in "${options[@]}"; do
+        if [[ $option != $returnBack ]]; then
+          removeServer
+          toggleServerState $option
+        fi
+        
+        isVersionMenu=false; enableMainMenu; break
+    done
+
 done
 
 echo "Bye bye!"
