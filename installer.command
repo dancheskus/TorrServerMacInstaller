@@ -61,7 +61,6 @@ installServer() {
           <string>-p</string>
           <string>8090</string>
           <string>-a</string>
-          <string>-k</string>
         </array>
         </dict>
     </plist>
@@ -87,8 +86,10 @@ removeServer() {
 
   sudo rm $plistPath && rm $serverPath
 
-  isVersionMenu=false
-  isRemoveMenu=true
+  if [[ $1 == "askAboutDB" ]]; then
+    isVersionMenu=false
+    isRemoveMenu=true
+  fi
 }
 
 stopServer() {
@@ -186,7 +187,7 @@ startApp() {
       [[ $option == $installLatestServerOption || $option == $startServerOption || $option == $stopServerOption ]] && toggleServerState && break
       [[ $option == $updateServerOption ]] && removeServer && installServer && startServer && break
       [[ $option == $installDifferentServerVersionOption ]] && isVersionMenu=true && clear && break
-      [[ $option == $removeServerOption ]] && removeServer && clear && echo "Server is removed." && break 2
+      [[ $option == $removeServerOption ]] && removeServer "askAboutDB" && clear && echo "Server is removed." && break 2
       [[ $option == $toggleAutostartOption ]] && toggleAutostart && break
       [[ $option == $quitOption ]] && clear && break 2
       echo "Wrong key? Use keys [1 - ${#options[@]}]"
