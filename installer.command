@@ -130,7 +130,7 @@ printInfo() {
 
   printTitle "Info:"
 
-  printKey "Server is installed" && [[ $isServerInstalled ]] && printGreen " true " || printRed " fasle "
+  printKey "Server is installed" && [[ $isServerInstalled == true ]] && printGreen " true " || printRed " fasle "
 
 
   if [[ $isServerInstalled == true ]]; then
