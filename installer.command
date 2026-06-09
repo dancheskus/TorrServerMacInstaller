@@ -4,12 +4,92 @@ dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 cd "$dir"
 
 plistPath="/Library/LaunchAgents/torrserver.plist"
+launchctlService="gui/$(id -u)/TorrServer"
 serverFolder="/Users/Shared/TorrServer"
-serverPath="$serverFolder/TorrServer-darwin-amd64"
+case "$(uname -m)" in
+  arm64) preferredServerBinary="TorrServer-darwin-arm64" ;;
+  *) preferredServerBinary="TorrServer-darwin-amd64" ;;
+esac
+preferredServerPath="$serverFolder/$preferredServerBinary"
+serverBinary="$preferredServerBinary"
+serverPath="$preferredServerPath"
 isServerInstalled=false
+isNativeServerInstalled=false
 projectURL="https://api.github.com/repos/YouROK/TorrServer/releases"
-latestMatrixVersion=$(curl -s $projectURL | grep tag_name | grep -m 1 MatriX | cut -d '"' -f 4)
+latestMatrixVersion=$(curl -s --max-time 10 "$projectURL/latest" | grep tag_name | grep -m 1 MatriX | cut -d '"' -f 4)
 webAppURL="http://localhost:8090"
+
+usePreferredServer() {
+  serverBinary="$preferredServerBinary"
+  serverPath="$preferredServerPath"
+}
+
+getServerVersion() {
+  local version
+
+  for ((i=0; i<10; i++)); do
+    version="$(curl -s --max-time 1 "$webAppURL/echo")"
+    if [[ $version ]]; then
+      echo "$version"
+      return 0
+    fi
+
+    sleep 0.3
+  done
+}
+
+waitForServerStart() {
+  for ((i=0; i<20; i++)); do
+    if pgrep -f "TorrServer-darwin" >/dev/null; then
+      return 0
+    fi
+
+    sleep 0.2
+  done
+}
+
+waitForServerStop() {
+  for ((i=0; i<20; i++)); do
+    if ! pgrep -f "TorrServer-darwin" >/dev/null; then
+      return 0
+    fi
+
+    sleep 0.2
+  done
+}
+
+loadLaunchAgent() {
+  if plutil -extract LaunchOnlyOnce raw -o - "$plistPath" >/dev/null 2>&1; then
+    sudo -n plutil -remove LaunchOnlyOnce "$plistPath" 2>/dev/null || return 1
+  fi
+
+  if [[ $(stat -f "%Su:%Sg" "$plistPath" 2>/dev/null) != "root:wheel" ]]; then
+    sudo -n chown root:wheel "$plistPath" 2>/dev/null || return 1
+  fi
+
+  if [[ $(stat -f "%Lp" "$plistPath" 2>/dev/null) != "644" ]]; then
+    sudo -n chmod 644 "$plistPath" 2>/dev/null || return 1
+  fi
+
+  launchctl bootout "$launchctlService" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$plistPath" 2>/dev/null || true
+}
+
+startDetachedServer() {
+  perl -MPOSIX=setsid -e '
+    chdir shift or die "chdir failed: $!";
+    open STDIN, "<", "/dev/null";
+    open STDOUT, ">", "/dev/null";
+    open STDERR, ">", "/dev/null";
+    setsid() or die "setsid failed: $!";
+    exec @ARGV;
+  ' "$serverFolder" "$serverPath" -d "$serverFolder" -l "$serverFolder/torrserver.log" -p 8090 &
+}
+
+clearScreen() {
+  clear 2>/dev/null || printf "\033c"
+  return 0
+}
 
 replacePlist() { plutil -replace $1 $2 "$3" "$plistPath"; }
 toggleAutostart() {
@@ -20,7 +100,23 @@ toggleAutostart() {
   fi
 }
 updateServrIsInstalled() {
-  [[ -f $serverPath && -f $plistPath ]] && isServerInstalled=true
+  isServerInstalled=false
+  isNativeServerInstalled=false
+  usePreferredServer
+
+  if [[ -f $plistPath ]]; then
+    plistServerPath="$(plutil -extract ProgramArguments.0 raw -o - "$plistPath" 2>/dev/null)"
+
+    for installedServerPath in "$plistServerPath" "$preferredServerPath" "$serverFolder/TorrServer-darwin-amd64" "$serverFolder/TorrServer-darwin-arm64"; do
+      if [[ -f $installedServerPath ]]; then
+        serverPath="$installedServerPath"
+        serverBinary="${installedServerPath##*/}"
+        isServerInstalled=true
+        [[ $serverBinary == "$preferredServerBinary" ]] && isNativeServerInstalled=true
+        return
+      fi
+    done
+  fi
 }
 
 contains() {
@@ -38,7 +134,9 @@ contains() {
 }
 
 installServer() {
-  cat > torrserver.plist <<- "EOF"            
+  usePreferredServer
+
+  cat > torrserver.plist <<- EOF
     <?xml version="1.0" encoding="UTF-8"?>
     <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
       <plist version="1.0">
@@ -47,44 +145,50 @@ installServer() {
         <string>TorrServer</string>
         <key>ServiceDescription</key>
         <string>TorrServer service for Mac</string>
-        <key>LaunchOnlyOnce</key>
-        <true/>
         <key>RunAtLoad</key>
         <true/>
         <key>ProgramArguments</key>
         <array>
-          <string>/Users/Shared/TorrServer/TorrServer-darwin-amd64</string>
+          <string>$serverPath</string>
           <string>-d</string>
-          <string>/Users/Shared/TorrServer</string>
+          <string>$serverFolder</string>
           <string>-l</string>
-          <string>/Users/Shared/TorrServer/torrserver.log</string>
+          <string>$serverFolder/torrserver.log</string>
           <string>-p</string>
           <string>8090</string>
-          <string>-a</string>
         </array>
         </dict>
     </plist>
 EOF
 
-  chmod 755 torrserver.plist
+  chmod 644 torrserver.plist
+  sudo chown root:wheel torrserver.plist
   sudo mv torrserver.plist /Library/LaunchAgents
 
   if [[ $1 ]]; then
     echo "Downloading $1..."
-    curl -s $projectURL | grep browser_download_url | grep $1 | grep darwin-amd64 | cut -d '"' -f 4 | xargs -n 1 curl -O -sSL
+    downloadURL="$(curl -s "$projectURL" | grep browser_download_url | grep "$1" | grep "$serverBinary" | cut -d '"' -f 4 | head -n 1)"
   else
     echo "Downloading latest release..."
-    curl -s $projectURL/latest | grep browser_download_url | grep darwin-amd64 | cut -d '"' -f 4 | xargs -n 1 curl -O -sSL
+    downloadURL="$(curl -s "$projectURL/latest" | grep browser_download_url | grep "$serverBinary" | cut -d '"' -f 4 | head -n 1)"
   fi
-  chmod 755 TorrServer-darwin-amd64
-  [ -d $serverFolder ] || mkdir $serverFolder
-  mv TorrServer-darwin-amd64 $serverFolder
+
+  if [[ -z $downloadURL ]]; then
+    echo "Could not find $serverBinary in TorrServer releases."
+    return 1
+  fi
+
+  curl -O -sSL "$downloadURL"
+  chmod 755 "$serverBinary"
+  [ -d "$serverFolder" ] || mkdir "$serverFolder"
+  mv "$serverBinary" "$serverFolder"
 }
 
 removeServer() {
   stopServer
 
-  sudo rm $plistPath && rm $serverPath
+  sudo rm -f "$plistPath"
+  rm -f "$serverFolder/TorrServer-darwin-amd64" "$serverFolder/TorrServer-darwin-arm64"
 
   if [[ $1 == "askAboutDB" ]]; then
     isVersionMenu=false
@@ -93,58 +197,77 @@ removeServer() {
 }
 
 stopServer() {
-  pkill -f "TorrServer-darwin-amd64"
+  launchctl kill TERM "$launchctlService" 2>/dev/null || true
+  pkill -f "TorrServer-darwin" 2>/dev/null || true
+  waitForServerStop
 }
 
 startServer() {
-  cd $serverFolder
-  (&>/dev/null ./TorrServer-darwin-amd64 &)
-  cd "$dir"
-  clear
-  open $webAppURL
+  loadLaunchAgent
+  launchctl kickstart -k "$launchctlService" 2>/dev/null || {
+    trap '' INT
+    startDetachedServer
+    trap - INT
+  }
+  waitForServerStart
+  getServerVersion >/dev/null
+  clearScreen
+  open "$webAppURL"
 }
 
 toggleServerState() {
   if [[ $isServerInstalled == false ]]; then
-    installServer $1
+    installServer "$1" || return
   fi
 
   [[ $isServerRunning ]] && stopServer || startServer
 }
 
-printHeader() { printf "\033[44m$1\n"; tput sgr0; }
-printTitle() { printf "\033[1m$1\n"; tput sgr0; }
-printKey() { printf "   \033[1m$1: "; tput sgr0;}
-printValue() { printf "\033[2m$1\n"; tput sgr0; }
-printGreen() { printf "\e[30m\e[42m$1\n"; tput sgr0; }
-printRed() { printf "\e[41m$1\n"; tput sgr0; }
-printLightBlue() { printf "\e[104m$1\n"; tput sgr0; }
-printGray() { printf "\e[30m\e[47m$1\n"; tput sgr0; }
+resetColor() { tput sgr0 2>/dev/null || true; }
+printHeader() { printf "\033[44m$1\n"; resetColor; }
+printTitle() { printf "\033[1m$1\n"; resetColor; }
+printKey() { printf "   \033[1m$1: "; resetColor; }
+printValue() { printf "\033[2m$1\n"; resetColor; }
+printGreen() { printf "\e[30m\e[42m$1\n"; resetColor; }
+printRed() { printf "\e[41m$1\n"; resetColor; }
+printLightBlue() { printf "\e[104m$1\n"; resetColor; }
+printGray() { printf "\e[30m\e[47m$1\n"; resetColor; }
 
 printInfo() {
-  clear
+  clearScreen
 
   printHeader " TorrServer Mac OS installer "; echo
 
-  isServerRunning="$(pgrep -f "TorrServer-darwin-amd64")"
+  isServerRunning="$(pgrep -f "TorrServer-darwin")"
+  torrServerVer=""
 
   printTitle "Info:"
 
-  printKey "Server is installed" && [[ $isServerInstalled == true ]] && printGreen " true " || printRed " fasle "
+  printKey "Server is installed" && [[ $isServerInstalled == true ]] && printGreen " true " || printRed " false "
 
 
   if [[ $isServerInstalled == true ]]; then
-    printKey "Server is running" && [[ $isServerRunning ]] && printGreen " true " || printRed " fasle "
+    printKey "Server is running" && [[ $isServerRunning ]] && printGreen " true " || printRed " false "
+    printKey "Server binary"
+    [[ $isNativeServerInstalled == true ]] && printGreen " $serverBinary " || printGray " $serverBinary (native: $preferredServerBinary) "
 
     if [[ $isServerRunning ]]; then
-      torrServerVer="$(curl -s $webAppURL/echo)"
+      torrServerVer="$(getServerVersion)"
       printKey "Server version"
-      [[ $torrServerVer == $latestMatrixVersion ]] && printLightBlue " $torrServerVer (latest) " || printGray " $torrServerVer (update available) "
+      if [[ -z $torrServerVer ]]; then
+        printGray " unknown "
+      elif [[ -z $latestMatrixVersion ]]; then
+        printGray " $torrServerVer (latest unavailable) "
+      elif [[ $torrServerVer == $latestMatrixVersion ]]; then
+        printLightBlue " $torrServerVer (latest) "
+      else
+        printGray " $torrServerVer (update available) "
+      fi
     fi
 
     isRunAtLoad="$(plutil -extract "RunAtLoad" xml1 -o - $plistPath | grep true)"
     printKey "Autostart server when Mac OS starts"
-    [[ $isRunAtLoad ]] && printGreen " true " || printRed " fasle "
+    [[ $isRunAtLoad ]] && printGreen " true " || printRed " false "
   fi
   
   echo; echo; echo; echo; echo;
@@ -179,7 +302,7 @@ startApp() {
     options+=("$installDifferentServerVersionOption")
 
     if [[ $isServerInstalled == true ]]; then
-      [[ $torrServerVer != $latestMatrixVersion ]] && options+=("$updateServerOption")
+      [[ ($torrServerVer && $latestMatrixVersion && $torrServerVer != $latestMatrixVersion) || $isNativeServerInstalled != true ]] && options+=("$updateServerOption")
       options+=("$removeServerOption" "$toggleAutostartOption")
     fi
 
@@ -190,10 +313,10 @@ startApp() {
     select option in "${options[@]}"; do
       [[ $option == $installLatestServerOption || $option == $startServerOption || $option == $stopServerOption ]] && toggleServerState && break
       [[ $option == $updateServerOption ]] && removeServer && installServer && startServer && break
-      [[ $option == $installDifferentServerVersionOption ]] && isVersionMenu=true && clear && break
-      [[ $option == $removeServerOption ]] && removeServer "askAboutDB" && clear && echo "Server is removed." && break 2
+      [[ $option == $installDifferentServerVersionOption ]] && isVersionMenu=true && clearScreen && break
+      [[ $option == $removeServerOption ]] && removeServer "askAboutDB" && clearScreen && echo "Server is removed." && break 2
       [[ $option == $toggleAutostartOption ]] && toggleAutostart && break
-      [[ $option == $quitOption ]] && clear && break 2
+      [[ $option == $quitOption ]] && clearScreen && break 2
       echo "Wrong key? Use keys [1 - ${#options[@]}]"
     done
   done
@@ -211,7 +334,7 @@ while $isVersionMenu; do
     if [ $(contains "${options[@]}" "$option") == "y" ]; then
       if [[ $option != $returnBack ]]; then
         [[ $isServerInstalled == true ]] && removeServer
-        installServer $option && startServer
+        installServer "$option" && startServer
       fi
 
       isVersionMenu=false; startApp; break
@@ -228,8 +351,8 @@ while $isRemoveMenu; do
     COLUMNS=0
     select opt in "${options[@]}"; do
       case $REPLY in
-        1) rm -rf $serverFolder; clear; break 2 ;;
-        2) clear; break 2 ;;
+        1) rm -rf $serverFolder; clearScreen; break 2 ;;
+        2) clearScreen; break 2 ;;
         *) echo "Wrong key? Use keys [1 - ${#options[@]}]" >&2 ;;
       esac
     done
