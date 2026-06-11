@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
 APP_NAME="TorrServerMacInstaller"
+DMG_APP_NAME="TorrServer"
 BUNDLE_ID="com.dancheskus.TorrServerMacInstaller"
 APP_VERSION="${APP_VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
@@ -111,7 +112,7 @@ cleanup_dmg_mount
 rm -rf "$DMG_STAGING_DIR" "$DMG_BACKGROUND_DIR" "$DMG_MOUNT_POINT" "$DMG_RW" "$DMG_FINAL"
 mkdir -p "$DMG_STAGING_DIR/.background" "$DMG_BACKGROUND_DIR" "$DMG_MOUNT_POINT"
 
-cp -R "$APP_DIR" "$DMG_STAGING_DIR/$APP_NAME.app"
+cp -R "$APP_DIR" "$DMG_STAGING_DIR/$DMG_APP_NAME.app"
 ln -s /Applications "$DMG_STAGING_DIR/Applications"
 
 cat > "$DMG_BACKGROUND_DIR/background.svg" <<'SVG'
@@ -193,7 +194,7 @@ tell application "Finder"
   set arrangement of theViewOptions to not arranged
   set icon size of theViewOptions to 104
   set background picture of theViewOptions to bgFile
-  set position of item "$APP_NAME.app" of dmgFolder to {180, 220}
+  set position of item "$DMG_APP_NAME.app" of dmgFolder to {180, 220}
   set position of item "Applications" of dmgFolder to {480, 220}
   update dmgFolder without registering applications
   delay 1
