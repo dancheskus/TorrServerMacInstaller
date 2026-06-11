@@ -143,7 +143,7 @@ final class ServerProcessManager: ObservableObject {
     }
 
     private func waitForVersion(port: Int, process: Process) async -> String? {
-        let url = URL(string: "http://localhost:\(port)/echo")!
+        let url = URL(string: "http://127.0.0.1:\(port)/echo")!
 
         for _ in 0..<20 {
             guard process.isRunning else { return nil }

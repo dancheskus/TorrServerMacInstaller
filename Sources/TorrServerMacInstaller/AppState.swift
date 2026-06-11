@@ -23,7 +23,7 @@ final class AppState: ObservableObject {
     private var didHandleLaunch = false
 
     var serverURL: URL {
-        URL(string: "http://localhost:\(settings.port)")!
+        URL(string: "http://127.0.0.1:\(settings.port)")!
     }
 
     var selectedRelease: TorrServerRelease? {
